@@ -11,8 +11,9 @@ public class RegisterClient {
         String fileName = args[0];  // Nom du fichier à enregistrer (passé en argument)
 
         try {
-            String clientName = InetAddress.getLocalHost().getHostAddress() + ":8080"; // IP:Port
-            Diary diary = (Diary) Naming.lookup("rmi://localhost/DiaryService");
+            String ip_adress = InetAddress.getLocalHost().getHostAddress();
+            String clientName = ip_adress + ":8080"; // IP:Port
+            Diary diary = (Diary) Naming.lookup("rmi://147.127.133.199/DiaryService");
             diary.registerFile(clientName, fileName);
             System.out.println("File '" + fileName + "' registered by " + clientName + ".");
         } catch (Exception e) {

@@ -16,7 +16,7 @@ public class DownloadClient {
 
         try {
             // Connexion au Diary pour obtenir les clients possédant le fichier
-            Diary diary = (Diary) Naming.lookup("rmi://localhost/DiaryService");
+            Diary diary = (Diary) Naming.lookup("rmi://147.127.133.199/DiaryService");
             List<String> clients = diary.getClientsWithFile(fileName);
 
             if (clients.isEmpty()) {
