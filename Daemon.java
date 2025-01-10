@@ -29,20 +29,42 @@ class FileHandler implements Runnable {
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
              OutputStream out = clientSocket.getOutputStream()) {
 
-            // Lire le nom du fichier demandé
-            String requestedFile = reader.readLine();
+            // Lire la requête : "fileName:partIndex:totalParts"
+            String request = reader.readLine();
+            String[] requestParts = request.split(":");
+            
+            if (requestParts.length != 3) {
+                out.write("ERROR: Invalid request format.\n".getBytes());
+                return;
+            }
+
+            String requestedFile = requestParts[0];
+            int partIndex = Integer.parseInt(requestParts[1]);
+            int totalParts = Integer.parseInt(requestParts[2]);
+
             File file = new File(requestedFile);
 
             if (file.exists() && file.isFile()) {
-                System.out.println("Sending file: " + file.getName());
+                long fileSize = file.length();
+                long partSize = fileSize / totalParts;
+                long startByte = partIndex * partSize;
+                long endByte = (partIndex == totalParts - 1) ? fileSize : startByte + partSize;
 
-                try (FileInputStream fileInput = new FileInputStream(file)) {
+                System.out.println("Sending part " + partIndex + " of file: " + file.getName());
+
+                try (RandomAccessFile randomAccessFile = new RandomAccessFile(file, "r")) {
+                    randomAccessFile.seek(startByte);
+
                     byte[] buffer = new byte[1024];
+                    long bytesToSend = endByte - startByte;
                     int bytesRead;
-                    while ((bytesRead = fileInput.read(buffer)) != -1) {
+
+                    while (bytesToSend > 0 && (bytesRead = randomAccessFile.read(buffer, 0, (int) Math.min(buffer.length, bytesToSend))) != -1) {
                         out.write(buffer, 0, bytesRead);
+                        bytesToSend -= bytesRead;
                     }
-                    System.out.println("File sent successfully.");
+
+                    System.out.println("Part " + partIndex + " sent successfully.");
                 }
             } else {
                 // Si le fichier n'existe pas, envoyer un message d'erreur

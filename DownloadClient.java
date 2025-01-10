@@ -22,44 +22,79 @@ public class DownloadClient {
             if (clients.isEmpty()) {
                 System.out.println("No clients have the file '" + fileName + "'.");
             } else {
-                // Télécharger de manière parallèle à partir des clients
-                ExecutorService executor = Executors.newFixedThreadPool(clients.size());
+                int totalParts = clients.size();
+                ExecutorService executor = Executors.newFixedThreadPool(totalParts);
+                File[] partFiles = new File[totalParts];
 
-                for (String client : clients) {
-                    executor.execute(() -> downloadFromClient(client, fileName));
+                for (int i = 0; i < totalParts; i++) {
+                    int partIndex = i;
+                    String client = clients.get(i);
+
+                    executor.execute(() -> downloadPartFromClient(client, fileName, partIndex, totalParts, partFiles));
                 }
 
                 executor.shutdown();
+                while (!executor.isTerminated()) {
+                    // Attendre la fin des téléchargements
+                }
+
+                // Assembler les parties téléchargées
+                assembleFile(fileName, partFiles);
             }
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
-    private static void downloadFromClient(String client, String fileName) {
+    private static void downloadPartFromClient(String client, String fileName, int partIndex, int totalParts, File[] partFiles) {
         String[] clientParts = client.split(":"); // Assume client format: "hostname:port"
         String host = clientParts[0];
         int port = Integer.parseInt(clientParts[1]);
 
         try (Socket socket = new Socket(host, port);
-             BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
              PrintWriter writer = new PrintWriter(socket.getOutputStream(), true);
-             FileOutputStream out = new FileOutputStream("downloaded_from_" + host + "_" + fileName)) {
+             InputStream in = socket.getInputStream()) {
 
-            // Envoyer le nom du fichier au daemon
-            writer.println(fileName);
+            // Demander une partie spécifique du fichier
+            writer.println(fileName + ":" + partIndex + ":" + totalParts);
 
-            // Lire et écrire le contenu du fichier
-            byte[] buffer = new byte[1024];
-            int bytesRead;
-            InputStream in = socket.getInputStream();
-            while ((bytesRead = in.read(buffer)) != -1) {
-                out.write(buffer, 0, bytesRead);
+            // Sauvegarder la partie téléchargée dans un fichier temporaire
+            File partFile = new File("part_" + partIndex + "_" + fileName);
+            partFiles[partIndex] = partFile;
+
+            try (FileOutputStream out = new FileOutputStream(partFile)) {
+                byte[] buffer = new byte[1024];
+                int bytesRead;
+                while ((bytesRead = in.read(buffer)) != -1) {
+                    out.write(buffer, 0, bytesRead);
+                }
             }
 
-            System.out.println("File downloaded successfully from " + host + " as 'downloaded_from_" + host + "_" + fileName + "'.");
+            System.out.println("Part " + partIndex + " downloaded successfully from " + host + ".");
         } catch (IOException e) {
-            System.err.println("Error downloading from " + host + ": " + e.getMessage());
+            System.err.println("Error downloading part " + partIndex + " from " + host + ": " + e.getMessage());
+        }
+    }
+
+    private static void assembleFile(String fileName, File[] partFiles) {
+        try (FileOutputStream out = new FileOutputStream(fileName)) {
+            for (File partFile : partFiles) {
+                if (partFile != null) {
+                    try (FileInputStream in = new FileInputStream(partFile)) {
+                        byte[] buffer = new byte[1024];
+                        int bytesRead;
+                        while ((bytesRead = in.read(buffer)) != -1) {
+                            out.write(buffer, 0, bytesRead);
+                        }
+                    }
+                    // Supprimer le fichier temporaire après assemblage
+                    partFile.delete();
+                }
+            }
+
+            System.out.println("File '" + fileName + "' assembled successfully.");
+        } catch (IOException e) {
+            System.err.println("Error assembling file: " + e.getMessage());
         }
     }
 }
