@@ -16,7 +16,7 @@ public class DownloadClient {
 
         try {
             // Connexion au Diary pour obtenir les clients possédant le fichier
-            Diary diary = (Diary) Naming.lookup("rmi://147.127.133.199/DiaryService");
+            Diary diary = (Diary) Naming.lookup("rmi://147.127.135.133/DiaryService");
             List<String> clients = diary.getClientsWithFile(fileName);
 
             if (clients.isEmpty()) {
@@ -24,30 +24,53 @@ public class DownloadClient {
             } else {
                 int totalParts = clients.size();
                 ExecutorService executor = Executors.newFixedThreadPool(totalParts);
-                File[] partFiles = new File[totalParts];
 
-                for (int i = 0; i < totalParts; i++) {
-                    int partIndex = i;
-                    String client = clients.get(i);
+                try (RandomAccessFile outputFile = new RandomAccessFile(fileName, "rw")) {
+                    // Préallouer la taille du fichier pour éviter les problèmes de fragmentation
+                    outputFile.setLength(getFileSizeFromServer(clients.get(0), fileName));
 
-                    executor.execute(() -> downloadPartFromClient(client, fileName, partIndex, totalParts, partFiles));
+                    for (int i = 0; i < totalParts; i++) {
+                        int partIndex = i;
+                        String client = clients.get(i);
+
+                        executor.execute(() -> downloadPartFromClient(client, fileName, partIndex, totalParts, outputFile));
+                    }
+
+                    executor.shutdown();
+                    while (!executor.isTerminated()) {
+                        // Attendre la fin des téléchargements
+                    }
+
+                    System.out.println("File '" + fileName + "' assembled successfully.");
                 }
-
-                executor.shutdown();
-                while (!executor.isTerminated()) {
-                    // Attendre la fin des téléchargements
-                }
-
-                // Assembler les parties téléchargées
-                assembleFile(fileName, partFiles);
             }
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
-    private static void downloadPartFromClient(String client, String fileName, int partIndex, int totalParts, File[] partFiles) {
-        String[] clientParts = client.split(":"); // Assume client format: "hostname:port"
+    private static long getFileSizeFromServer(String client, String fileName) {
+        String[] clientParts = client.split(":");
+        String host = clientParts[0];
+        int port = Integer.parseInt(clientParts[1]);
+
+        try (Socket socket = new Socket(host, port);
+             PrintWriter writer = new PrintWriter(socket.getOutputStream(), true);
+             BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream()))) {
+
+            writer.println("SIZE:" + fileName);
+            String response = reader.readLine();
+
+            return Long.parseLong(response.trim());
+        } catch (IOException | NumberFormatException e) {
+            System.err.println("Error fetching file size from " + host + ": " + e.getMessage());
+        }
+
+        throw new RuntimeException("Unable to determine file size.");
+    }
+
+    private static void downloadPartFromClient(String client, String fileName, int partIndex, int totalParts, RandomAccessFile outputFile) {
+        String[] clientParts = client.split(":");
         String host = clientParts[0];
         int port = Integer.parseInt(clientParts[1]);
 
@@ -58,43 +81,28 @@ public class DownloadClient {
             // Demander une partie spécifique du fichier
             writer.println(fileName + ":" + partIndex + ":" + totalParts);
 
-            // Sauvegarder la partie téléchargée dans un fichier temporaire
-            File partFile = new File("part_" + partIndex + "_" + fileName);
-            partFiles[partIndex] = partFile;
+            // Calculer la position dans le fichier final
+            long fileSize = outputFile.length();
+            long partSize = fileSize / totalParts;
+            long startByte = partIndex * partSize;
+            long endByte = (partIndex == totalParts - 1) ? fileSize : startByte + partSize;
 
-            try (FileOutputStream out = new FileOutputStream(partFile)) {
-                byte[] buffer = new byte[1024];
-                int bytesRead;
-                while ((bytesRead = in.read(buffer)) != -1) {
-                    out.write(buffer, 0, bytesRead);
+            byte[] buffer = new byte[1024];
+            int bytesRead;
+            long currentByte = startByte;
+
+            synchronized (outputFile) {
+                outputFile.seek(currentByte);
+
+                while ((bytesRead = in.read(buffer)) != -1 && currentByte < endByte) {
+                    outputFile.write(buffer, 0, bytesRead);
+                    currentByte += bytesRead;
                 }
             }
 
-            System.out.println("Part " + partIndex + " downloaded successfully from " + host + ".");
+            System.out.println("Part " + partIndex + " downloaded and written successfully.");
         } catch (IOException e) {
             System.err.println("Error downloading part " + partIndex + " from " + host + ": " + e.getMessage());
-        }
-    }
-
-    private static void assembleFile(String fileName, File[] partFiles) {
-        try (FileOutputStream out = new FileOutputStream(fileName)) {
-            for (File partFile : partFiles) {
-                if (partFile != null) {
-                    try (FileInputStream in = new FileInputStream(partFile)) {
-                        byte[] buffer = new byte[1024];
-                        int bytesRead;
-                        while ((bytesRead = in.read(buffer)) != -1) {
-                            out.write(buffer, 0, bytesRead);
-                        }
-                    }
-                    // Supprimer le fichier temporaire après assemblage
-                    partFile.delete();
-                }
-            }
-
-            System.out.println("File '" + fileName + "' assembled successfully.");
-        } catch (IOException e) {
-            System.err.println("Error assembling file: " + e.getMessage());
         }
     }
 }

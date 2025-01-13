@@ -3,8 +3,21 @@ import java.net.*;
 
 public class Daemon {
     public static void main(String[] args) {
-        try (ServerSocket serverSocket = new ServerSocket(8080)) { // écoute sur le port 8080
-            System.out.println("Daemon is running on port 8080...");
+        if (args.length < 1) {
+            System.out.println("Usage: java Daemon <port>");
+            return;
+        }
+
+        int port;
+        try {
+            port = Integer.parseInt(args[0]);
+        } catch (NumberFormatException e) {
+            System.out.println("Invalid port number. Please provide a valid integer.");
+            return;
+        }
+
+        try (ServerSocket serverSocket = new ServerSocket(port)) { // écoute sur le port spécifié
+            System.out.println("Daemon is running on port " + port + "...");
 
             while (true) {
                 Socket clientSocket = serverSocket.accept();
