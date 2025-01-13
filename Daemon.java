@@ -40,12 +40,27 @@ class FileHandler implements Runnable {
     @Override
     public void run() {
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
-             OutputStream out = clientSocket.getOutputStream()) {
+            OutputStream out = clientSocket.getOutputStream()) {
 
-            // Lire la requête : "fileName:partIndex:totalParts"
             String request = reader.readLine();
+
+            if (request.startsWith("SIZE:")) {
+                // Traiter la commande SIZE
+                String requestedFile = request.substring(5); // Extraire le nom du fichier
+                File file = new File(requestedFile);
+
+                if (file.exists() && file.isFile()) {
+                    long fileSize = file.length();
+                    out.write((fileSize + "\n").getBytes());
+                } else {
+                    out.write("ERROR: File not found.\n".getBytes());
+                }
+                return;
+            }
+
+            // Autres commandes (comme le téléchargement de parties)
+            // Lire la requête : "fileName:partIndex:totalParts"
             String[] requestParts = request.split(":");
-            
             if (requestParts.length != 3) {
                 out.write("ERROR: Invalid request format.\n".getBytes());
                 return;
@@ -80,10 +95,7 @@ class FileHandler implements Runnable {
                     System.out.println("Part " + partIndex + " sent successfully.");
                 }
             } else {
-                // Si le fichier n'existe pas, envoyer un message d'erreur
-                String errorMessage = "ERROR: File not found.\n";
-                out.write(errorMessage.getBytes());
-                System.out.println("Requested file not found: " + requestedFile);
+                out.write("ERROR: File not found.\n".getBytes());
             }
 
         } catch (IOException e) {
