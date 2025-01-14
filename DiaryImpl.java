@@ -18,4 +18,3 @@ public class DiaryImpl extends UnicastRemoteObject implements Diary {
         return fileRegistry.getOrDefault(fileName, Collections.emptyList());
     }
 }
-
